@@ -1,0 +1,48 @@
+[project]
+name = "ask-my-docs"
+version = "0.1.0"
+description = "Production-grade RAG system using FastAPI, Qdrant, OpenAI, and Cohere"
+requires-python = ">=3.11"
+
+dependencies = [
+
+    # -----------------------------
+    # FastAPI web framework
+    # -----------------------------
+    "fastapi==0.115.0",
+
+    # ASGI server used to run FastAPI
+    "uvicorn[standard]==0.30.6",
+
+    # Qdrant vector database client
+    "qdrant-client==1.11.1",
+
+    # Official OpenAI SDK
+    "google-generativeai==0.8.3",
+
+    # Cohere SDK for reranking
+    "cohere==5.11.0",
+
+    # BM25 keyword retrieval implementation
+    "rank-bm25==0.2.2",
+
+    # Data validation and serialization
+    "pydantic==2.9.2",
+
+    # Environment variable loader
+    "python-dotenv==1.0.1",
+
+    # HTTP client for API testing and evals
+    "httpx==0.27.2",
+]
+
+[project.optional-dependencies]
+dev = [
+
+    # Testing framework
+    "pytest==8.3.3",
+]
+
+[build-system]
+requires = ["setuptools>=75.1.0"]
+build-backend = "setuptools.build_meta"
