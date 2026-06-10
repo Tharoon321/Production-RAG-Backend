@@ -6,18 +6,10 @@ from typing import List
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from src.generation.generator import generate_answer
 from src.ingestion.chunker import (
     Document,
     chunk_documents,
 )
-from src.ingestion.indexer import (
-    qdrant_client,
-    COLLECTION_NAME,
-)
-from src.retrieval.hybrid import hybrid_search
-from src.reranking.reranker import rerank_chunks
-
 
 # ---------------------------------------------------------
 # FastAPI router instance
@@ -47,9 +39,26 @@ class IngestRequest(BaseModel):
 async def ask_question(
     request: QueryRequest,
 ):
+    """
+    Full RAG pipeline.
+
+    IMPORTANT:
+    Heavy imports are lazy-loaded inside endpoint
+    to reduce Heroku startup memory usage.
+    """
+
+    # -----------------------------------------------------
+    # Lazy imports
+    # -----------------------------------------------------
+    from src.retrieval.hybrid import hybrid_search
+    from src.reranking.reranker import rerank_chunks
+    from src.generation.generator import generate_answer
 
     request_start = time.perf_counter()
 
+    # -----------------------------------------------------
+    # Hybrid retrieval
+    # -----------------------------------------------------
     retrieved_candidates = await hybrid_search(
         query=request.question,
         top_k=30,
@@ -58,9 +67,9 @@ async def ask_question(
     print("\n========== RETRIEVED ==========")
     print("COUNT:", len(retrieved_candidates))
 
-    for item in retrieved_candidates:
-        print(item)
-
+    # -----------------------------------------------------
+    # Reranking
+    # -----------------------------------------------------
     reranked_chunks = rerank_chunks(
         query=request.question,
         candidates=retrieved_candidates,
@@ -70,9 +79,9 @@ async def ask_question(
     print("\n========== RERANKED ==========")
     print("COUNT:", len(reranked_chunks))
 
-    for item in reranked_chunks:
-        print(item)
-
+    # -----------------------------------------------------
+    # Final answer generation
+    # -----------------------------------------------------
     response = generate_answer(
         query=request.question,
         reranked_chunks=reranked_chunks,
@@ -95,22 +104,34 @@ async def ingest_documents(
     request: IngestRequest,
 ):
     """
-    Ingests documents into the RAG system.
+    Ingest documents into RAG system.
 
     IMPORTANT:
-    Heavy imports are done here so they
-    don't load during FastAPI startup.
+    Heavy imports stay inside endpoint
+    so FastAPI startup remains lightweight.
     """
 
+    # -----------------------------------------------------
+    # Lazy imports
+    # -----------------------------------------------------
     from src.ingestion.embedder import embed_chunks
     from src.ingestion.indexer import index_chunks
 
+    # -----------------------------------------------------
+    # Chunk documents
+    # -----------------------------------------------------
     chunks = chunk_documents(
         documents=request.documents,
     )
 
+    # -----------------------------------------------------
+    # Generate embeddings
+    # -----------------------------------------------------
     embeddings = embed_chunks(chunks)
 
+    # -----------------------------------------------------
+    # Index chunks
+    # -----------------------------------------------------
     index_chunks(
         chunks=chunks,
         embeddings=embeddings,
@@ -124,10 +145,23 @@ async def ingest_documents(
 
 
 # ---------------------------------------------------------
-# DEBUG: Qdrant vector count
+# DEBUG endpoint
 # ---------------------------------------------------------
 @router.get("/debug/count")
 def debug_count():
+    """
+    Returns total vectors stored in Qdrant.
+
+    IMPORTANT:
+    Lazy import prevents Qdrant client
+    initialization during startup.
+    """
+
+    from src.ingestion.indexer import (
+        qdrant_client,
+        COLLECTION_NAME,
+    )
+
     return qdrant_client.count(
         collection_name=COLLECTION_NAME,
         exact=True,

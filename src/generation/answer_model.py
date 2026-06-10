@@ -1,14 +1,16 @@
-
 from __future__ import annotations
 
 import re
 from typing import List
 
-from pydantic import BaseModel, Field, field_validator
-
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+)
 
 # ---------------------------------------------------------
-# Regex pattern for citation extraction
+# Citation extraction regex
 # ---------------------------------------------------------
 CITATION_PATTERN = r"\[(doc_[^\]]+)\]"
 
@@ -21,16 +23,19 @@ class RAGResponse(BaseModel):
     Final API response returned to frontend.
     """
 
+    # Generated grounded answer
     answer: str
 
-    # List of cited document IDs
-    citations: List[str] = Field(default_factory=list)
+    # Extracted citation document IDs
+    citations: List[str] = Field(
+        default_factory=list
+    )
 
-    # End-to-end request latency
+    # Total request latency
     latency_ms: float
 
     # -----------------------------------------------------
-    # Validate citation consistency
+    # Citation consistency validator
     # -----------------------------------------------------
     @field_validator("citations")
     @classmethod
@@ -40,22 +45,28 @@ class RAGResponse(BaseModel):
         info,
     ) -> List[str]:
         """
-        Ensures every citation used in the answer
-        exists in the citations list.
+        Ensures every citation present
+        in the answer also exists
+        inside citations list.
         """
 
-        answer = info.data.get("answer", "")
+        answer = info.data.get(
+            "answer",
+            "",
+        )
 
-        # Extract all citations from answer text
+        # Extract citations from answer text
         found_citations = re.findall(
             CITATION_PATTERN,
             answer,
         )
 
         # Remove duplicates
-        found_citations = list(set(found_citations))
+        found_citations = list(
+            set(found_citations)
+        )
 
-        # Validate every citation exists
+        # Detect missing citations
         missing = [
             citation
             for citation in found_citations
@@ -64,8 +75,8 @@ class RAGResponse(BaseModel):
 
         if missing:
             raise ValueError(
-                "Answer contains citations not present "
-                f"in citations list: {missing}"
+                "Missing citations in citations list: "
+                f"{missing}"
             )
 
         return citations

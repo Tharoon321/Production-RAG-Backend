@@ -1,14 +1,11 @@
-
 from __future__ import annotations
-from dotenv import load_dotenv
 
-load_dotenv()
 import os
 import re
 import time
 from typing import Dict, List
 
-import google.generativeai as genai
+from dotenv import load_dotenv
 
 from src.generation.answer_model import (
     CITATION_PATTERN,
@@ -19,32 +16,61 @@ from src.generation.prompt_builder import (
     build_prompt,
 )
 
+# ---------------------------------------------------------
+# Load environment variables
+# ---------------------------------------------------------
+load_dotenv()
 
 # ---------------------------------------------------------
-# Configure Gemini
-# ---------------------------------------------------------
-genai.configure(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
-
-
-# ---------------------------------------------------------
-# Gemini model
+# Gemini model configuration
 # ---------------------------------------------------------
 MODEL_NAME = "gemini-2.5-flash"
+
+# ---------------------------------------------------------
+# Lazy-loaded Gemini model
+# ---------------------------------------------------------
+_model = None
+
+
+def get_gemini_model():
+    """
+    Lazy loads Gemini model only when needed.
+    Prevents heavy startup memory usage.
+    """
+
+    global _model
+
+    if _model is None:
+
+        import google.generativeai as genai
+
+        genai.configure(
+            api_key=os.getenv("GEMINI_API_KEY")
+        )
+
+        _model = genai.GenerativeModel(
+            MODEL_NAME
+        )
+
+    return _model
 
 
 # ---------------------------------------------------------
 # Extract citations
 # ---------------------------------------------------------
-def extract_citations(answer: str) -> List[str]:
+def extract_citations(
+    answer: str,
+) -> List[str]:
 
     citations = re.findall(
         CITATION_PATTERN,
         answer,
     )
 
-    return list(dict.fromkeys(citations))
+    # Remove duplicates while preserving order
+    return list(
+        dict.fromkeys(citations)
+    )
 
 
 # ---------------------------------------------------------
@@ -55,17 +81,22 @@ def generate_answer(
     reranked_chunks: List[Dict],
 ) -> RAGResponse:
     """
-    Generates final RAG answer using Gemini.
+    Generates final grounded answer using Gemini.
     """
 
     start_time = time.perf_counter()
 
+    # -----------------------------------------------------
+    # Build prompt
+    # -----------------------------------------------------
     messages = build_prompt(
         query=query,
         chunks=reranked_chunks,
     )
 
+    # -----------------------------------------------------
     # Convert chat messages into single prompt
+    # -----------------------------------------------------
     prompt = "\n\n".join(
         [
             f"{msg['role'].upper()}:\n{msg['content']}"
@@ -73,24 +104,37 @@ def generate_answer(
         ]
     )
 
-    model = genai.GenerativeModel(
-        MODEL_NAME
-    )
+    # -----------------------------------------------------
+    # Lazy-load Gemini model
+    # -----------------------------------------------------
+    model = get_gemini_model()
 
+    # -----------------------------------------------------
+    # Generate response
+    # -----------------------------------------------------
     response = model.generate_content(
         prompt
     )
 
     answer = response.text.strip()
 
+    # -----------------------------------------------------
+    # Extract citations
+    # -----------------------------------------------------
     citations = extract_citations(
         answer
     )
 
+    # -----------------------------------------------------
+    # Compute latency
+    # -----------------------------------------------------
     latency_ms = (
         time.perf_counter() - start_time
     ) * 1000
 
+    # -----------------------------------------------------
+    # Validate response
+    # -----------------------------------------------------
     validated_response = RAGResponse(
         answer=answer,
         citations=citations,

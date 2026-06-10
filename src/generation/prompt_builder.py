@@ -1,87 +1,103 @@
-
 from __future__ import annotations
 
+import os
 from typing import Dict, List
 
+from dotenv import load_dotenv
 
 # ---------------------------------------------------------
-# System prompt for grounded RAG generation
+# Load environment variables
 # ---------------------------------------------------------
-SYSTEM_PROMPT = """
-You are a helpful AI assistant for document question answering.
-
-Rules:
-1. Only use the provided context.
-2. Do not invent information.
-3. If the answer is not in the context, say you are unsure.
-4. Cite every factual claim using [doc_id] notation.
-5. Use concise and accurate answers.
-""".strip()
-
+load_dotenv()
 
 # ---------------------------------------------------------
-# Build formatted context block
+# Cohere reranking model
 # ---------------------------------------------------------
-def build_context(chunks: List[Dict]) -> str:
+RERANK_MODEL = "rerank-english-v3.0"
+
+# ---------------------------------------------------------
+# Lazy-loaded Cohere client
+# ---------------------------------------------------------
+_cohere_client = None
+
+
+def get_cohere_client():
     """
-    Formats retrieved chunks into context text.
-
-    Example:
-
-    [doc_001]
-    FastAPI supports async APIs...
-
-    [doc_002]
-    JWT authentication uses signed tokens...
+    Lazy loads Cohere client only when needed.
+    Prevents unnecessary startup memory usage.
     """
 
-    formatted_chunks = []
+    global _cohere_client
 
-    for chunk in chunks:
+    if _cohere_client is None:
 
-        doc_id = chunk["doc_id"]
-        text = chunk["text"]
+        import cohere
 
-        formatted_chunk = (
-            f"[{doc_id}]\n"
-            f"{text}"
+        _cohere_client = cohere.Client(
+            os.getenv("CO_API_KEY")
         )
 
-        formatted_chunks.append(formatted_chunk)
-
-    return "\n\n".join(formatted_chunks)
+    return _cohere_client
 
 
 # ---------------------------------------------------------
-# Build final messages for OpenAI chat completion
+# Main reranking function
 # ---------------------------------------------------------
-def build_prompt(
+def rerank_chunks(
     query: str,
-    chunks: List[Dict],
-) -> List[Dict[str, str]]:
+    candidates: List[Dict],
+    top_n: int = 5,
+) -> List[Dict]:
     """
-    Builds chat completion message list.
+    Reranks retrieved chunks using Cohere.
     """
 
-    context_block = build_context(chunks)
-
-    user_prompt = f"""
-Answer the following question using ONLY the provided context.
-
-Question:
-{query}
-
-Context:
-{context_block}
-""".strip()
-
-    return [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT,
-        },
-        {
-            "role": "user",
-            "content": user_prompt,
-        },
+    # -----------------------------------------------------
+    # Extract chunk texts
+    # -----------------------------------------------------
+    documents = [
+        candidate["text"]
+        for candidate in candidates
+        if "text" in candidate
     ]
+
+    # -----------------------------------------------------
+    # Lazy-load Cohere client
+    # -----------------------------------------------------
+    cohere_client = get_cohere_client()
+
+    # -----------------------------------------------------
+    # Cohere reranking API
+    # -----------------------------------------------------
+    response = cohere_client.rerank(
+        model=RERANK_MODEL,
+
+        query=query,
+
+        documents=documents,
+
+        top_n=top_n,
+    )
+
+    reranked_results = []
+
+    # -----------------------------------------------------
+    # Build reranked output
+    # -----------------------------------------------------
+    for result in response.results:
+
+        candidate = candidates[
+            result.index
+        ]
+
+        reranked_chunk = candidate.copy()
+
+        reranked_chunk[
+            "relevance_score"
+        ] = result.relevance_score
+
+        reranked_results.append(
+            reranked_chunk
+        )
+
+    return reranked_results

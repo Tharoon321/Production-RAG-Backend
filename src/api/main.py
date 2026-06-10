@@ -1,21 +1,21 @@
-
 from __future__ import annotations
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import router
-
-
 # ---------------------------------------------------------
-# Load environment variables from .env
+# Load environment variables
 # ---------------------------------------------------------
 load_dotenv()
 
+# ---------------------------------------------------------
+# Import router AFTER env loading
+# ---------------------------------------------------------
+from src.api.routes import router
 
 # ---------------------------------------------------------
-# Create FastAPI application
+# Create FastAPI app
 # ---------------------------------------------------------
 app = FastAPI(
     title="Ask My Docs API",
@@ -24,13 +24,12 @@ app = FastAPI(
     Production-grade RAG backend using:
     - FastAPI
     - Qdrant
-    - OpenAI
+    - Gemini
     - Cohere
     """,
 
     version="1.0.0",
 )
-
 
 # ---------------------------------------------------------
 # Enable CORS
@@ -38,34 +37,37 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
 
-    # Allow frontend requests from any origin during development
     allow_origins=["*"],
 
     allow_credentials=True,
 
-    # Allow all HTTP methods
     allow_methods=["*"],
 
-    # Allow all headers
     allow_headers=["*"],
 )
 
-
 # ---------------------------------------------------------
-# Register API routes
+# Register routes
 # ---------------------------------------------------------
 app.include_router(router)
 
-
 # ---------------------------------------------------------
-# Health check endpoint
+# Root endpoint
 # ---------------------------------------------------------
 @app.get("/")
 async def root():
-    """
-    Basic health check endpoint.
-    """
 
     return {
-        "message": "Ask My Docs API is running."
+        "status": "healthy",
+        "message": "Ask My Docs API is running"
+    }
+
+# ---------------------------------------------------------
+# Health endpoint
+# ---------------------------------------------------------
+@app.get("/health")
+async def health():
+
+    return {
+        "status": "ok"
     }
