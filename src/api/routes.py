@@ -1,26 +1,22 @@
-
 from __future__ import annotations
 
 import time
-from typing import Dict, List
+from typing import List
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from src.generation.generator import generate_answer
 from src.ingestion.chunker import (
     Document,
     chunk_documents,
 )
-from src.ingestion.embedder import embed_chunks
 from src.ingestion.indexer import (
-    index_chunks,
     qdrant_client,
     COLLECTION_NAME,
 )
 from src.retrieval.hybrid import hybrid_search
 from src.reranking.reranker import rerank_chunks
-
-from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------
@@ -33,13 +29,7 @@ router = APIRouter()
 # Request model for /ask endpoint
 # ---------------------------------------------------------
 class QueryRequest(BaseModel):
-    """
-    User question request model.
-    """
-
     question: str
-
-    # Number of reranked chunks to use
     top_k: int = 5
 
 
@@ -47,10 +37,6 @@ class QueryRequest(BaseModel):
 # Request model for /ingest endpoint
 # ---------------------------------------------------------
 class IngestRequest(BaseModel):
-    """
-    Batch document ingestion request.
-    """
-
     documents: List[Document]
 
 
@@ -61,22 +47,9 @@ class IngestRequest(BaseModel):
 async def ask_question(
     request: QueryRequest,
 ):
-    """
-    Full RAG pipeline endpoint.
-
-    Flow:
-        retrieve
-            ↓
-        rerank
-            ↓
-        generate
-    """
 
     request_start = time.perf_counter()
 
-    # -----------------------------------------------------
-    # Hybrid retrieval
-    # -----------------------------------------------------
     retrieved_candidates = await hybrid_search(
         query=request.question,
         top_k=30,
@@ -88,9 +61,6 @@ async def ask_question(
     for item in retrieved_candidates:
         print(item)
 
-    # -----------------------------------------------------
-    # Cross-encoder reranking
-    # -----------------------------------------------------
     reranked_chunks = rerank_chunks(
         query=request.question,
         candidates=retrieved_candidates,
@@ -103,9 +73,6 @@ async def ask_question(
     for item in reranked_chunks:
         print(item)
 
-    # -----------------------------------------------------
-    # Final grounded answer generation
-    # -----------------------------------------------------
     response = generate_answer(
         query=request.question,
         reranked_chunks=reranked_chunks,
@@ -115,7 +82,6 @@ async def ask_question(
         time.perf_counter() - request_start
     ) * 1000
 
-    # Add total API latency
     response.latency_ms = total_latency_ms
 
     return response
@@ -130,23 +96,21 @@ async def ingest_documents(
 ):
     """
     Ingests documents into the RAG system.
+
+    IMPORTANT:
+    Heavy imports are done here so they
+    don't load during FastAPI startup.
     """
 
-    # -----------------------------------------------------
-    # Step 1: Chunk documents
-    # -----------------------------------------------------
+    from src.ingestion.embedder import embed_chunks
+    from src.ingestion.indexer import index_chunks
+
     chunks = chunk_documents(
         documents=request.documents,
     )
 
-    # -----------------------------------------------------
-    # Step 2: Generate embeddings
-    # -----------------------------------------------------
     embeddings = embed_chunks(chunks)
 
-    # -----------------------------------------------------
-    # Step 3: Index into Qdrant + BM25
-    # -----------------------------------------------------
     index_chunks(
         chunks=chunks,
         embeddings=embeddings,
@@ -157,6 +121,8 @@ async def ingest_documents(
         "documents": len(request.documents),
         "chunks": len(chunks),
     }
+
+
 # ---------------------------------------------------------
 # DEBUG: Qdrant vector count
 # ---------------------------------------------------------
