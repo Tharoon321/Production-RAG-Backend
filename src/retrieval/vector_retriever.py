@@ -1,42 +1,34 @@
 from __future__ import annotations
 
+import os
 from typing import List, Dict, Any
 
-from sentence_transformers import SentenceTransformer
+import google.generativeai as genai
 
 from src.ingestion.indexer import (
     COLLECTION_NAME,
     qdrant_client,
 )
 
-_model = None
+genai.configure(
+    api_key=os.getenv("GOOGLE_API_KEY")
+)
 
-
-def get_model():
-    global _model
-
-    if _model is None:
-        _model = SentenceTransformer(
-            "sentence-transformers/all-MiniLM-L6-v2"
-        )
-
-    return _model
+MODEL = "models/text-embedding-004"
 
 
 def vector_search(
     query: str,
     limit: int = 20,
 ) -> List[Dict[str, Any]]:
-    """
-    Performs semantic vector search in Qdrant.
-    """
 
-    model = get_model()
+    response = genai.embed_content(
+        model=MODEL,
+        content=query,
+        task_type="retrieval_query"
+    )
 
-    query_vector = model.encode(
-        query,
-        normalize_embeddings=True,
-    ).tolist()
+    query_vector = response["embedding"]
 
     results = qdrant_client.search(
         collection_name=COLLECTION_NAME,

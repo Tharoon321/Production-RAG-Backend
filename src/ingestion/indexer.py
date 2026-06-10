@@ -23,7 +23,7 @@ from src.ingestion.chunker import Chunk, tokenize
 COLLECTION_NAME = "ask_my_docs"
 
 # OpenAI text-embedding-3-small output dimension
-VECTOR_DIMENSION = 384
+VECTOR_DIMENSION = 768
 
 # BM25 index save location
 BM25_INDEX_PATH = Path("bm25_index.pkl")

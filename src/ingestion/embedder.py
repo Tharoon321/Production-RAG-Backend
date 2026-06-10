@@ -1,36 +1,29 @@
-from sentence_transformers import SentenceTransformer
+import os
+import google.generativeai as genai
 
-_model = None
+genai.configure(
+    api_key=os.getenv("GOOGLE_API_KEY")
+)
 
-
-def get_model():
-    global _model
-
-    if _model is None:
-        _model = SentenceTransformer(
-            "sentence-transformers/all-MiniLM-L6-v2"
-        )
-
-    return _model
+MODEL = "models/text-embedding-004"
 
 
 def embed_chunks(chunks):
-    model = get_model()
-
-    texts = [chunk.text for chunk in chunks]
-
-    vectors = model.encode(
-        texts,
-        convert_to_numpy=True
-    )
 
     embeddings = []
 
-    for chunk, vector in zip(chunks, vectors):
+    for chunk in chunks:
+
+        response = genai.embed_content(
+            model=MODEL,
+            content=chunk.text,
+            task_type="retrieval_document"
+        )
+
         embeddings.append(
             (
                 chunk.chunk_id,
-                vector.tolist()
+                response["embedding"]
             )
         )
 
