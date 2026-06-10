@@ -21,7 +21,7 @@ dependencies = [
     "google-generativeai==0.8.3",
 
     # Cohere SDK for reranking
-    "cohere==5.11.0",
+    "cohere==4.57",
 
     # BM25 keyword retrieval implementation
     "rank-bm25==0.2.2",
