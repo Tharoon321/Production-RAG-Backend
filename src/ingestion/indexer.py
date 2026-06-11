@@ -43,14 +43,17 @@ def get_qdrant_client():
             QdrantClient,
         )
         
-        _qdrant_client = QdrantClient(
-            url=os.getenv(
-                "QDRANT_URL"
-            ),
+        url = os.getenv("QDRANT_URL")
+        api_key = os.getenv("QDRANT_API_KEY")
+        
+        if url:
+            url = url.strip().replace("\n", "").replace("\r", "")
+        if api_key:
+            api_key = api_key.strip().replace("\n", "").replace("\r", "")
 
-            api_key=os.getenv(
-                "QDRANT_API_KEY"
-            ),
+        _qdrant_client = QdrantClient(
+            url=url,
+            api_key=api_key,
         )
         
 
