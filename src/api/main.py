@@ -86,3 +86,14 @@ async def memory():
             2
         )
     }
+import os
+import psutil
+
+process = psutil.Process(os.getpid())
+
+print("=" * 50)
+print(
+    f"STARTUP MEMORY: "
+    f"{process.memory_info().rss / 1024 / 1024:.2f} MB"
+)
+print("=" * 50)
