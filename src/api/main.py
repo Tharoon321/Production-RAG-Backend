@@ -73,3 +73,16 @@ async def health():
     return {
         "status": "ok"
     }
+import os
+import psutil
+
+@app.get("/memory")
+async def memory():
+    process = psutil.Process(os.getpid())
+
+    return {
+        "rss_mb": round(
+            process.memory_info().rss / 1024 / 1024,
+            2
+        )
+    }
