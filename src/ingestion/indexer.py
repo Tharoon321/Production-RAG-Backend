@@ -15,8 +15,8 @@ from src.ingestion.chunker import (
 # ---------------------------------------------------------
 COLLECTION_NAME = "ask_my_docs"
 
-# Gemini embedding dimension
-VECTOR_DIMENSION = 768
+# Gemini embedding dimension for models/gemini-embedding-2
+VECTOR_DIMENSION = 3072
 
 # BM25 index file
 BM25_INDEX_PATH = Path(

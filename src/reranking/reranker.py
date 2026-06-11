@@ -32,9 +32,11 @@ def get_cohere_client():
 
         import cohere
 
-        _cohere_client = cohere.Client(
-            os.getenv("CO_API_KEY")
-        )
+        api_key = os.getenv("CO_API_KEY")
+        if not api_key:
+            raise RuntimeError("CO_API_KEY is not set in environment")
+
+        _cohere_client = cohere.Client(api_key)
 
     return _cohere_client
 

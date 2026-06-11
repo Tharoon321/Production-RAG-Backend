@@ -44,13 +44,13 @@ def get_gemini_model():
 
         import google.generativeai as genai
 
-        genai.configure(
-            api_key=os.getenv("GEMINI_API_KEY")
-        )
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is not set in environment")
 
-        _model = genai.GenerativeModel(
-            MODEL_NAME
-        )
+        genai.configure(api_key=api_key)
+
+        _model = genai.GenerativeModel(MODEL_NAME)
 
     return _model
 

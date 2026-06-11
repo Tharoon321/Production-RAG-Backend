@@ -13,7 +13,7 @@ load_dotenv()
 # ---------------------------------------------------------
 # Gemini embedding model
 # ---------------------------------------------------------
-MODEL = "models/text-embedding-004"
+MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-2")
 
 # ---------------------------------------------------------
 # Lazy-loaded Gemini module
@@ -32,11 +32,11 @@ def get_genai():
 
         import google.generativeai as genai
 
-        genai.configure(
-            api_key=os.getenv(
-                "GOOGLE_API_KEY"
-            )
-        )
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is not set in environment")
+
+        genai.configure(api_key=api_key)
 
         _genai = genai
 

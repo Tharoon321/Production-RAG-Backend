@@ -3,8 +3,10 @@ from __future__ import annotations
 import time
 from typing import List
 
-from fastapi import APIRouter
+import traceback
 from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Depends, Request
+import json
 
 from src.ingestion.chunker import (
     Document,
@@ -15,6 +17,17 @@ from src.ingestion.chunker import (
 # FastAPI router instance
 # ---------------------------------------------------------
 router = APIRouter()
+
+
+def require_json(request: Request) -> bool:
+    """Dependency that ensures incoming request has application/json content-type."""
+    ct = request.headers.get("content-type", "")
+    if "application/json" not in ct.lower():
+        raise HTTPException(
+            status_code=415,
+            detail="Content-Type must be application/json",
+        )
+    return True
 
 
 # ---------------------------------------------------------
@@ -37,7 +50,8 @@ class IngestRequest(BaseModel):
 # ---------------------------------------------------------
 @router.post("/ask")
 async def ask_question(
-    request: QueryRequest,
+    request_payload: QueryRequest,
+    _content_check: bool = Depends(require_json),
 ):
     """
     Full RAG pipeline.
@@ -54,46 +68,54 @@ async def ask_question(
     from src.reranking.reranker import rerank_chunks
     from src.generation.generator import generate_answer
 
-    request_start = time.perf_counter()
+    try:
+        request_start = time.perf_counter()
 
-    # -----------------------------------------------------
-    # Hybrid retrieval
-    # -----------------------------------------------------
-    retrieved_candidates = await hybrid_search(
-        query=request.question,
-        top_k=30,
-    )
+        # -------------------------------------------------
+        # Hybrid retrieval
+        # -------------------------------------------------
+        retrieved_candidates = await hybrid_search(
+            query=request_payload.question,
+            top_k=30,
+        )
 
-    print("\n========== RETRIEVED ==========")
-    print("COUNT:", len(retrieved_candidates))
+        print("\n========== RETRIEVED ==========")
+        print("COUNT:", len(retrieved_candidates))
 
-    # -----------------------------------------------------
-    # Reranking
-    # -----------------------------------------------------
-    reranked_chunks = rerank_chunks(
-        query=request.question,
-        candidates=retrieved_candidates,
-        top_n=request.top_k,
-    )
+        # -------------------------------------------------
+        # Reranking
+        # -------------------------------------------------
+        reranked_chunks = rerank_chunks(
+            query=request_payload.question,
+            candidates=retrieved_candidates,
+            top_n=request_payload.top_k,
+        )
 
-    print("\n========== RERANKED ==========")
-    print("COUNT:", len(reranked_chunks))
+        print("\n========== RERANKED ==========")
+        print("COUNT:", len(reranked_chunks))
 
-    # -----------------------------------------------------
-    # Final answer generation
-    # -----------------------------------------------------
-    response = generate_answer(
-        query=request.question,
-        reranked_chunks=reranked_chunks,
-    )
+        # -------------------------------------------------
+        # Final answer generation
+        # -------------------------------------------------
+        response = generate_answer(
+            query=request_payload.question,
+            reranked_chunks=reranked_chunks,
+        )
 
-    total_latency_ms = (
-        time.perf_counter() - request_start
-    ) * 1000
+        total_latency_ms = (
+            time.perf_counter() - request_start
+        ) * 1000
 
-    response.latency_ms = total_latency_ms
+        response.latency_ms = total_latency_ms
 
-    return response
+        return response
+    except Exception as exc:
+        # Print full traceback to server logs for debugging
+        tb = traceback.format_exc()
+        print("ERROR in /ask:\n", tb)
+
+        # Return a concise error to the client
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ---------------------------------------------------------
@@ -101,7 +123,8 @@ async def ask_question(
 # ---------------------------------------------------------
 @router.post("/ingest")
 async def ingest_documents(
-    request: IngestRequest,
+    request_payload: IngestRequest,
+    _content_check: bool = Depends(require_json),
 ):
     """
     Ingest documents into RAG system.
@@ -121,7 +144,7 @@ async def ingest_documents(
     # Chunk documents
     # -----------------------------------------------------
     chunks = chunk_documents(
-        documents=request.documents,
+        documents=request_payload.documents,
     )
 
     # -----------------------------------------------------
@@ -139,7 +162,7 @@ async def ingest_documents(
 
     return {
         "message": "Documents ingested successfully.",
-        "documents": len(request.documents),
+        "documents": len(request_payload.documents),
         "chunks": len(chunks),
     }
 
@@ -157,12 +180,95 @@ def debug_count():
     initialization during startup.
     """
 
+    from fastapi import HTTPException
+
     from src.ingestion.indexer import (
-        qdrant_client,
         COLLECTION_NAME,
+        get_qdrant_client,
     )
 
-    return qdrant_client.count(
-        collection_name=COLLECTION_NAME,
-        exact=True,
-    )
+    try:
+        qdrant_client = get_qdrant_client()
+        result = qdrant_client.count(
+            collection_name=COLLECTION_NAME,
+            exact=True,
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Qdrant unavailable: {str(exc)}",
+        )
+
+
+# ---------------------------------------------------------
+# DEBUG: echo request
+# ---------------------------------------------------------
+@router.post("/debug/echo")
+async def debug_echo(request: Request):
+    """Return received headers and raw body to help debug client requests."""
+
+    raw = await request.body()
+
+    try:
+        parsed = json.loads(raw.decode("utf-8")) if raw else None
+    except Exception:
+        parsed = None
+
+    return {
+        "headers": dict(request.headers),
+        "raw_body": raw.decode("utf-8", errors="replace"),
+        "parsed_json": parsed,
+    }
+
+
+@router.get("/debug/genai")
+def debug_genai():
+    """Test Gemini / Google Generative API embedding call and return result or traceback."""
+    try:
+        from src.retrieval.vector_retriever import get_genai, MODEL
+
+        genai = get_genai()
+
+        # Try a small embedding call
+        resp = genai.embed_content(model=MODEL, content="test", task_type="retrieval_query")
+
+        return {"ok": True, "embedding_len": len(resp.get("embedding", []))}
+    except Exception as exc:
+        import traceback as _tb
+
+        return {"ok": False, "error": str(exc), "traceback": _tb.format_exc()}
+
+
+@router.get("/debug/cohere")
+def debug_cohere():
+    """Test Cohere rerank API and return result or traceback."""
+    try:
+        from src.reranking.reranker import get_cohere_client, RERANK_MODEL
+
+        client = get_cohere_client()
+
+        # Minimal rerank call
+        response = client.rerank(model=RERANK_MODEL, query="q", documents=["a","b"], top_n=1)
+
+        return {"ok": True, "results_count": len(response.results)}
+    except Exception as exc:
+        import traceback as _tb
+
+        return {"ok": False, "error": str(exc), "traceback": _tb.format_exc()}
+
+
+@router.get("/debug/qdrant")
+def debug_qdrant():
+    """Test Qdrant client connection and count a collection."""
+    try:
+        from src.ingestion.indexer import get_qdrant_client, COLLECTION_NAME
+
+        client = get_qdrant_client()
+        result = client.count(collection_name=COLLECTION_NAME, exact=True)
+
+        return {"ok": True, "count": result}
+    except Exception as exc:
+        import traceback as _tb
+
+        return {"ok": False, "error": str(exc), "traceback": _tb.format_exc()}
