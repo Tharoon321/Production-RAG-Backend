@@ -3,17 +3,13 @@ from __future__ import annotations
 import time
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from src.ingestion.chunker import (
     Document,
     chunk_documents,
 )
-
-# RQ enqueue + status helpers
-from src.tasks.worker_rq import queue, redis_conn
-from rq.job import Job
 
 # ---------------------------------------------------------
 # FastAPI router instance
@@ -44,57 +40,60 @@ async def ask_question(
     request: QueryRequest,
 ):
     """
-    Enqueue the full RAG pipeline as a background job.
+    Full RAG pipeline.
 
-    Returns a job id and a status URL the client can poll.
-    Heavy imports are executed inside the worker process.
+    IMPORTANT:
+    Heavy imports are lazy-loaded inside endpoint
+    to reduce Heroku startup memory usage.
     """
 
-    # Enqueue the worker job by import path. The worker function
-    # should be defined as src.tasks.worker_rq.process_ask_job
-    job = queue.enqueue(
-        "src.tasks.worker_rq.process_ask_job",
-        request.question,
-        request.top_k,
+    # -----------------------------------------------------
+    # Lazy imports
+    # -----------------------------------------------------
+    from src.retrieval.hybrid import hybrid_search
+    from src.reranking.reranker import rerank_chunks
+    from src.generation.generator import generate_answer
+
+    request_start = time.perf_counter()
+
+    # -----------------------------------------------------
+    # Hybrid retrieval
+    # -----------------------------------------------------
+    retrieved_candidates = await hybrid_search(
+        query=request.question,
+        top_k=30,
     )
 
-    return {
-        "job_id": job.get_id(),
-        "status_url": f"/ask/status/{job.get_id()}",
-    }
+    print("\n========== RETRIEVED ==========")
+    print("COUNT:", len(retrieved_candidates))
 
+    # -----------------------------------------------------
+    # Reranking
+    # -----------------------------------------------------
+    reranked_chunks = rerank_chunks(
+        query=request.question,
+        candidates=retrieved_candidates,
+        top_n=request.top_k,
+    )
 
-# ---------------------------------------------------------
-# GET /ask/status/{job_id}
-# ---------------------------------------------------------
-@router.get("/ask/status/{job_id}")
-def ask_status(job_id: str):
-    """
-    Returns job status and result (when finished).
-    """
+    print("\n========== RERANKED ==========")
+    print("COUNT:", len(reranked_chunks))
 
-    try:
-        job = Job.fetch(job_id, connection=redis_conn)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
+    # -----------------------------------------------------
+    # Final answer generation
+    # -----------------------------------------------------
+    response = generate_answer(
+        query=request.question,
+        reranked_chunks=reranked_chunks,
+    )
 
-    status = job.get_status()
+    total_latency_ms = (
+        time.perf_counter() - request_start
+    ) * 1000
 
-    if job.is_finished:
-        return {
-            "status": "finished",
-            "result": job.result,
-        }
+    response.latency_ms = total_latency_ms
 
-    if job.is_failed:
-        return {
-            "status": "failed",
-            "error": str(job.exc_info),
-        }
-
-    return {
-        "status": status,
-    }
+    return response
 
 
 # ---------------------------------------------------------
