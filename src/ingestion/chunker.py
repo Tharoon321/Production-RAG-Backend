@@ -127,4 +127,3 @@ def chunk_documents(
             start += max_tokens - overlap
 
     return chunks
-

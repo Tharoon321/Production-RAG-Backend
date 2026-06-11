@@ -42,7 +42,7 @@ def get_qdrant_client():
         from qdrant_client import (
             QdrantClient,
         )
-
+        
         _qdrant_client = QdrantClient(
             url=os.getenv(
                 "QDRANT_URL"
@@ -52,6 +52,7 @@ def get_qdrant_client():
                 "QDRANT_API_KEY"
             ),
         )
+        
 
     return _qdrant_client
 
@@ -168,7 +169,9 @@ def upsert_vectors(
 
     # -----------------------------------------------------
     # Upload to Qdrant
-    # -----------------------------------------------------
+    # ----------
+    #-------------------------------------------
+    
     qdrant_client.upsert(
         collection_name=COLLECTION_NAME,
 
